@@ -1,1 +1,153 @@
 https://ui-lib.com/blog/typescript-to-javascript/
+
+
+How to use
+1) Create a folder called "tools" in your TypeScript project
+2) Create package.json or run npm init in "tools" folder and paste below content in package.json
+    {
+    "scripts": {
+        "start": "node convert"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "@babel/cli": "^7.15.7",
+        "@babel/core": "^7.15.8",
+        "@babel/node": "^7.15.8",
+        "@babel/plugin-transform-typescript": "^7.15.8",
+        "@babel/preset-env": "^7.15.8",
+        "@babel/preset-react": "^7.14.5",
+        "@babel/preset-typescript": "^7.15.0",
+        "fs-extra": "^10.0.0"
+    }
+    }
+
+3) Open terminal in "tools" folder and run "npm install".
+4) Create utils.js in "tools" folder and past below code.
+    * The buildTree function creates a tree structure of all the files in your project.
+    * createJsConfig function to create jsconfig.json file.
+    * The transformTsToJs function uses babel to convert whole project to js.
+    
+    utils.js
+    var fs = require('fs');
+ 
+    class TreeNode {
+    path;
+    children;
+    
+    constructor(path) {
+        this.path = path;
+        this.children = [];
+    }
+    }
+    
+    const buildTree = (rootPath) => {
+    const root = new TreeNode(rootPath);
+    
+    const stack = [root];
+    
+    while (stack.length) {
+        const currentNode = stack.pop();
+    
+        if (currentNode) {
+        const children = fs.readdirSync(currentNode.path);
+    
+        for (let child of children) {
+            const childPath = `${currentNode.path}/${child}`;
+            const childNode = new TreeNode(childPath);
+            currentNode.children.push(childNode);
+    
+            if (fs.statSync(childNode.path).isDirectory()) {
+            stack.push(childNode);
+            }
+        }
+        }
+    }
+    
+    return root;
+    };
+    
+    const transformTsToJs = (node) => {
+    //   console.log(node);
+    node.children.forEach((childNode) => {
+        if (childNode.children && childNode.children.length) {
+        transformTsToJs(childNode);
+        } else {
+        // transform only ts files
+        if (childNode.path.includes('.js') || childNode.path.includes('.jsx')) {
+            return;
+        }
+    
+        // Transform
+        let result = require('@babel/core').transformSync(
+            fs.readFileSync(childNode.path),
+            {
+            filename: childNode.path,
+            presets: ['@babel/preset-typescript'],
+            plugins: ['@babel/plugin-transform-typescript'],
+            }
+        );
+    
+        // Save new file
+        let newFilePath;
+        if (childNode.path.includes('.ts')) {
+            newFilePath = childNode.path.replace('.ts', '.js');
+        }
+        if (childNode.path.includes('.tsx')) {
+            newFilePath = childNode.path.replace('.tsx', '.jsx');
+        }
+    
+        fs.writeFileSync(newFilePath, result.code);
+    
+        // delete main ts files
+        if (childNode.path.includes('.ts') || childNode.path.includes('.tsx')) {
+            fs.unlinkSync(childNode.path);
+        }
+        }
+    });
+    };
+    
+    const createJsConfig = (outdir) => {
+    fs.writeFileSync(
+        outdir,
+        `{
+        "compilerOptions": {
+            "baseUrl": "src"
+        },
+        "include": ["src"]
+    }`
+    );
+    };
+    
+    module.exports = {
+    buildTree,
+    transformTsToJs,
+    createJsConfig,
+    };
+
+5) Create a file "convert.js" and paste below code.
+    * Inside Promise.all copy all the source files including TS, images, etc. to output folder. Your new javascript project will be saved in output folder.
+    * We created jsconfig.json output folder.
+    * We built tree structure of output folder and used this to convert all the typescript code to javascript.
+
+    convert.js
+    const utils = require('./utils');
+    const fse = require('fs-extra');
+    
+    Promise.all([
+    fse.copy('../src', 'output/src'),
+    fse.copy('../.env', 'output/.env'),
+    fse.copy('../.gitignore', 'output/.gitignore'),
+    fse.copy('../public', 'output/public'),
+    fse.copy('../package.json', 'output/package.json'),
+    fse.copy('../README.md', 'output/README.md'),
+    ])
+    .then(() => {
+        utils.createJsConfig('output/jsconfig.json');
+    
+        const allFiles = utils.buildTree('output/src');
+        utils.transformTsToJs(allFiles);
+    })
+    .catch((err) => console.log(err));
+
+6) Lastly, run this command. It will convert your whole project to JavaScript.
+    * Run "node convert" or "npm start" to run the convert.js file.
